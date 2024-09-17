@@ -1,4 +1,4 @@
-  #include "M5Cardputer.h"
+#include "M5Cardputer.h"
 #include <map>
 #include <vector>
 #include <SD.h>
@@ -7,6 +7,9 @@ File dataFile;
 // Path to the data file on the SD card
 const char* folderPath = "/morsetrainer";
 const char *dataFilePath = "/morsetrainer/data.txt";
+
+unsigned long lastKeyPressMillis = 0;
+const unsigned long debounceDelay = 200; // Adjust debounce delay as needed
 
 // Morse code dictionary
 std::map<char, String> morse_dict = {
@@ -513,22 +516,26 @@ void new_level_test() {
    while (true) {
     M5Cardputer.update();
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      // Handle Enter key (finalize WPM input)
-      if (status.enter) {
-        M5Cardputer.Display.clear();
-        draw_centered_text("3", M5Cardputer.Display.height()/2-10, TFT_WHITE,4);
-        delay(1000);
-        M5Cardputer.Display.clear();
-        draw_centered_text("2", M5Cardputer.Display.height()/2-10, TFT_WHITE,4);
-        delay(1000);
-        M5Cardputer.Display.clear();
-        draw_centered_text("1", M5Cardputer.Display.height()/2-10, TFT_WHITE,4);
-        delay(1000);
-       break;
+        unsigned long currentMillis = millis();
+        if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+          lastKeyPressMillis = currentMillis;
+          Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+    
+          // Handle Enter key (finalize WPM input)
+          if (status.enter) {
+            M5Cardputer.Display.clear();
+            draw_centered_text("3", M5Cardputer.Display.height()/2-10, TFT_WHITE,4);
+            delay(1000);
+            M5Cardputer.Display.clear();
+            draw_centered_text("2", M5Cardputer.Display.height()/2-10, TFT_WHITE,4);
+            delay(1000);
+            M5Cardputer.Display.clear();
+            draw_centered_text("1", M5Cardputer.Display.height()/2-10, TFT_WHITE,4);
+            delay(1000);
+           break;
+          }
+        }
       }
-    }
    }
     
   int z=0;
@@ -708,40 +715,44 @@ void set_wpm() {
   while (true) {
     M5Cardputer.update();
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
 
-      // Handle number input
-      for (auto key : status.word) {
-        if (isdigit(key) && wpm_input.length() < 3) {
-          wpm_input += key;
+        // Handle number input
+        for (auto key : status.word) {
+          if (isdigit(key) && wpm_input.length() < 3) {
+            wpm_input += key;
+            draw_centered_text("Invalid WPM", 70, BLACK,2);
+          }
+        }
+
+        // Handle delete key (backspace)
+        if (status.del && wpm_input.length() > 0) {
+          wpm_input.remove(wpm_input.length() - 1);
           draw_centered_text("Invalid WPM", 70, BLACK,2);
         }
-      }
 
-      // Handle delete key (backspace)
-      if (status.del && wpm_input.length() > 0) {
-        wpm_input.remove(wpm_input.length() - 1);
-        draw_centered_text("Invalid WPM", 70, BLACK,2);
-      }
-
-      // Handle Enter key (finalize WPM input)
-      if (status.enter && wpm_input.length() > 0) {
-        wpm = wpm_input.toInt();
-        if (wpm <= 0) { // Validate WPM
-          M5Cardputer.Display.setTextColor(TFT_RED);
-          draw_centered_text("Invalid WPM!", 70, TFT_RED,2);
-          //delay(2000);
-          //wpm_input = "";
-          //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
-          continue;
+        // Handle Enter key (finalize WPM input)
+        if (status.enter && wpm_input.length() > 0) {
+          wpm = wpm_input.toInt();
+          if (wpm <= 0) { // Validate WPM
+            M5Cardputer.Display.setTextColor(TFT_RED);
+            draw_centered_text("Invalid WPM!", 70, TFT_RED,2);
+            //delay(2000);
+            //wpm_input = "";
+            //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
+            continue;
+          }
+          recalculate_timings();
+          break;  // Exit the loop when a valid WPM is entered
         }
-        recalculate_timings();
-        break;  // Exit the loop when a valid WPM is entered
-      }
 
-      // Update the display with the user's input
-      draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 50, 50, 22, TFT_WHITE, BLACK);
-      draw_centered_text(wpm_input, 53, TFT_WHITE,2);
+        // Update the display with the user's input
+        draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 50, 50, 22, TFT_WHITE, BLACK);
+        draw_centered_text(wpm_input, 53, TFT_WHITE,2);
+      }
     }
   }
 
@@ -765,40 +776,44 @@ void set_level() {
   while (true) {
     M5Cardputer.update();
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      // Handle number input
-      for (auto key : status.word) {
-        if (isdigit(key) && level_input.length() < 3) {
-          level_input += key;
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+  
+        // Handle number input
+        for (auto key : status.word) {
+          if (isdigit(key) && level_input.length() < 3) {
+            level_input += key;
+            draw_centered_text("Invalid Level", 97, BLACK,2);//"erase" warning
+          }
+        }
+  
+        // Handle delete key (backspace)
+        if (status.del && level_input.length() > 0) {
+          level_input.remove(level_input.length() - 1);
           draw_centered_text("Invalid Level", 97, BLACK,2);//"erase" warning
         }
-      }
-
-      // Handle delete key (backspace)
-      if (status.del && level_input.length() > 0) {
-        level_input.remove(level_input.length() - 1);
-        draw_centered_text("Invalid Level", 97, BLACK,2);//"erase" warning
-      }
-
-      // Handle Enter key (finalize Level input)
-      if (status.enter && level_input.length() > 0) {
-        level = level_input.toInt();
-        if (level < 1 || level > 40) {  // Validate Level
-          M5Cardputer.Display.setTextColor(TFT_RED);
-          draw_centered_text("Invalid Level", 97, TFT_RED,2);
-          //delay(2000);
-          //level_input = "";
-          //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
-          continue;
+  
+        // Handle Enter key (finalize Level input)
+        if (status.enter && level_input.length() > 0) {
+          level = level_input.toInt();
+          if (level < 1 || level > 40) {  // Validate Level
+            M5Cardputer.Display.setTextColor(TFT_RED);
+            draw_centered_text("Invalid Level", 97, TFT_RED,2);
+            //delay(2000);
+            //level_input = "";
+            //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
+            continue;
+          }
+          current_pool = level_pools[level - 1]; // Set character pool for the selected level        
+          break;  // Exit the loop when a valid Level is entered
         }
-        current_pool = level_pools[level - 1]; // Set character pool for the selected level        
-        break;  // Exit the loop when a valid Level is entered
-      }
 
-      // Update the display with the user's input
-      draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 70, 50, 22, TFT_WHITE, BLACK);
-      draw_centered_text(level_input, 73, TFT_WHITE,2);
+        // Update the display with the user's input
+        draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 70, 50, 22, TFT_WHITE, BLACK);
+        draw_centered_text(level_input, 73, TFT_WHITE,2);
+      }
     }
   }
 
@@ -824,40 +839,44 @@ void set_volume() {
   while (true) {
     M5Cardputer.update();
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      // Handle number input
-      for (auto key : status.word) {
-        if (isdigit(key) && volume_input.length() < 3) {
-          volume_input += key;
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+  
+        // Handle number input
+        for (auto key : status.word) {
+          if (isdigit(key) && volume_input.length() < 3) {
+            volume_input += key;
+            draw_centered_text("Invalid Volume", 97, BLACK,2);
+          }
+        }
+  
+        // Handle delete key (backspace)
+        if (status.del && volume_input.length() > 0) {
+          volume_input.remove(volume_input.length() - 1);
           draw_centered_text("Invalid Volume", 97, BLACK,2);
         }
-      }
 
-      // Handle delete key (backspace)
-      if (status.del && volume_input.length() > 0) {
-        volume_input.remove(volume_input.length() - 1);
-        draw_centered_text("Invalid Volume", 97, BLACK,2);
+        // Handle Enter key (finalize Level input)
+        if (status.enter && volume_input.length() > 0) {
+          spk_volume = volume_input.toInt();
+          if (spk_volume < 1 || spk_volume > 255) {  // Validate Level
+            M5Cardputer.Display.setTextColor(TFT_RED);
+            draw_centered_text("Invalid Volume", 97, TFT_RED,2);
+            //delay(2000);
+            //volume_input = "";
+            //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
+            continue;
+          } 
+          M5.Speaker.setVolume(spk_volume);            
+          break;  // Exit the loop when a valid Level is entered
+        }
+  
+        // Update the display with the user's input
+        draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 70, 50, 22, TFT_WHITE, BLACK);
+        draw_centered_text(volume_input, 73, TFT_WHITE,2);
       }
-
-      // Handle Enter key (finalize Level input)
-      if (status.enter && volume_input.length() > 0) {
-        spk_volume = volume_input.toInt();
-        if (spk_volume < 1 || spk_volume > 255) {  // Validate Level
-          M5Cardputer.Display.setTextColor(TFT_RED);
-          draw_centered_text("Invalid Volume", 97, TFT_RED,2);
-          //delay(2000);
-          //volume_input = "";
-          //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
-          continue;
-        } 
-        M5.Speaker.setVolume(spk_volume);            
-        break;  // Exit the loop when a valid Level is entered
-      }
-
-      // Update the display with the user's input
-      draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 70, 50, 22, TFT_WHITE, BLACK);
-      draw_centered_text(volume_input, 73, TFT_WHITE,2);
     }
   }
 
@@ -893,117 +912,96 @@ void setup() {
   show_menu();
 }
 
+
 // Main loop
 void loop() {
   M5Cardputer.update();
 
-  if(after_round_opts)
-  {     
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+  if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+            
       Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      if (status.enter) {
-        after_round_opts = false;
-        new_round();
-      }
-      else if (M5Cardputer.Keyboard.isKeyPressed('`')) 
-      {
-        menu_open = true; 
-        after_round_opts = false;
-        show_menu();
-      }
-    }
-    
-  }
-  else if(after_test_opts)
-  {     
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      if (M5Cardputer.Keyboard.isKeyPressed('`')) 
-      {
-        menu_open = true; 
-        after_test_opts = false;
-        show_menu();
-      }
-    }
-    
-  }
-  else if (menu_open) {
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      if (M5Cardputer.Keyboard.isKeyPressed('.')) {
-        selected_option = (selected_option + 1) % menu_items_count;  // Navigate down
-        show_menu();
-      } else if (M5Cardputer.Keyboard.isKeyPressed(';')) {
-        selected_option = (selected_option - 1 + menu_items_count) % menu_items_count;  // Navigate up
-        show_menu();
-      } else if (status.enter) {
-        menu_open = false;
-        handle_menu_selection();  // Execute the selected menu option
-      }
-    }
-  } 
-  else if (waiting_for_input) {
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      for (auto key : status.word) {
-        if ((isalnum(key) or key=='.' or key=='/' or key=='?' or key==',' or key=='=') && user_input.length() < 5) {
-          user_input += key;
-        }
-      }
-      user_input.toUpperCase();
-      if (status.del && user_input.length() > 0) {
-        user_input.remove(user_input.length() - 1);
-      }
-
-     
-
-      // Update the display with the user's current input
-       //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
-       draw_bordered_rect((M5Cardputer.Display.width()/2)-37, 42, 74, 22, TFT_WHITE, BLACK);
-       draw_centered_text(user_input, 45, TFT_WHITE,2);
-
-       if (status.enter && user_input.length() == 5) {
-        waiting_for_input = false;
-        //M5Cardputer.Display.clear();
-        //M5Cardputer.Display.fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
-        check_input();
-      }
-    }
-  }
-  else if (waiting_for_level_test_input) {
-    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-
-      for (auto key : status.word) {
-        if ((isalnum(key) or key=='.' or key=='/' or key=='?' or key==',' or key=='=' or key==' ') && user_level_test_input.length() < 59) {
-          user_level_test_input += key;
-        }
-      }
-      user_level_test_input.toUpperCase();
-      if (status.del && user_level_test_input.length() > 0) {
-        user_level_test_input.remove(user_level_test_input.length() - 1);
-      }
-
-     
-
-      // Update the display with the user's current input
-      draw_bordered_rect(25,42, M5Cardputer.Display.width()-50, 58, TFT_WHITE, BLACK);
-      if(user_level_test_input.length() == 59){
-        draw_multiline_text(user_level_test_input, 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25, 25);
-      }
-      else{
-        draw_multiline_text(user_level_test_input+"_", 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25, 25);
-      }
       
-      if (status.enter && user_level_test_input.length() == 59) {
-        draw_multiline_text(user_level_test_input+" ", 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25, 25);
-        waiting_for_level_test_input = false;
-        check_level_test_input();
+      if(after_round_opts){ 
+          if (status.enter) {
+            after_round_opts = false;
+            new_round();
+          }
+          else if (M5Cardputer.Keyboard.isKeyPressed('`')){
+            menu_open = true; 
+            after_round_opts = false;
+            show_menu();
+          }
       }
+      else if(after_test_opts){ 
+        if (M5Cardputer.Keyboard.isKeyPressed('`')){
+          menu_open = true; 
+          after_test_opts = false;
+          show_menu();
+        }
+      }
+      else if (menu_open) {
+        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+          selected_option = (selected_option + 1) % menu_items_count;  // Navigate down
+          show_menu();
+        } else if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+          selected_option = (selected_option - 1 + menu_items_count) % menu_items_count;  // Navigate up
+          show_menu();
+        } else if (status.enter) {
+          menu_open = false;
+          handle_menu_selection();  // Execute the selected menu option
+        }
+      } 
+      else if (waiting_for_input) {  
+        for (auto key : status.word) {
+          if ((isalnum(key) or key=='.' or key=='/' or key=='?' or key==',' or key=='=') && user_input.length() < 5) {
+            user_input += key;
+          }
+        }
+        user_input.toUpperCase();
+        if (status.del && user_input.length() > 0) {
+          user_input.remove(user_input.length() - 1);
+        }
+        // Update the display with the user's current input
+         //M5Cardputer.Display.clear();//fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
+         draw_bordered_rect((M5Cardputer.Display.width()/2)-37, 42, 74, 22, TFT_WHITE, BLACK);
+         draw_centered_text(user_input, 45, TFT_WHITE,2);
+  
+         if (status.enter && user_input.length() == 5) {
+          waiting_for_input = false;
+          //M5Cardputer.Display.clear();
+          //M5Cardputer.Display.fillRect(0, 0, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK);
+          check_input();
+          }    
+        }
+        else if (waiting_for_level_test_input) { 
+          for (auto key : status.word) {
+            if ((isalnum(key) or key=='.' or key=='/' or key=='?' or key==',' or key=='=' or key==' ') && user_level_test_input.length() < 59) {
+              user_level_test_input += key;
+            }
+          }
+          user_level_test_input.toUpperCase();
+          if (status.del && user_level_test_input.length() > 0) {
+            user_level_test_input.remove(user_level_test_input.length() - 1);
+          }
+          
+          // Update the display with the user's current input
+          draw_bordered_rect(25,42, M5Cardputer.Display.width()-50, 58, TFT_WHITE, BLACK);
+          if(user_level_test_input.length() == 59){
+            draw_multiline_text(user_level_test_input, 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25, 25);
+          }
+          else{
+            draw_multiline_text(user_level_test_input+"_", 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25, 25);
+          }
+          
+          if (status.enter && user_level_test_input.length() == 59) {
+            draw_multiline_text(user_level_test_input+" ", 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25, 25);
+            waiting_for_level_test_input = false;
+            check_level_test_input();
+          }
+        }
     }
   }
 }
