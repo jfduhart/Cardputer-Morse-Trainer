@@ -1,4 +1,4 @@
-#include "M5Cardputer.h"
+  #include "M5Cardputer.h"
 #include <map>
 #include <vector>
 #include <SD.h>
@@ -7,6 +7,7 @@ File dataFile;
 // Path to the data file on the SD card
 const char* folderPath = "/morsetrainer";
 const char *dataFilePath = "/morsetrainer/data.txt";
+const char *testsFilePath = "/morsetrainer/testresults.txt";
 
 unsigned long lastKeyPressMillis = 0;
 const unsigned long debounceDelay = 200; // Adjust debounce delay as needed
@@ -95,10 +96,26 @@ int morsetone = 600;//Hz
 // Menu navigation variables
 int selected_option = 0;
 bool menu_open = false;
+bool study_menu_open = false;
+bool settings_menu_open = false;
+bool testzone_menu_open = false;
+
 bool after_round_opts = false;
 bool after_test_opts = false;
-const char* menu_items[] = {"Level Test","Level Game","Level Study", "Level", "WPM", "Volume"};
-const int menu_items_count = 6;
+const char* menu_items[] = {"Test Zone","Memory Game","Study", "Settings"};
+const int menu_items_count = 4;
+
+const char* study_menu_items[] = {"Level Study","Free Study"};
+const int study_menu_items_count = 2;
+int study_selected_option = 0;
+
+const char* settings_menu_items[] = {"Level", "WPM", "Volume", "Tone"};
+const int settings_menu_items_count = 4;
+int settings_selected_option = 0;
+
+const char* testzone_menu_items[] = {"Take Level Test", "Level Results"};
+const int testzone_menu_items_count = 2;
+int testzone_selected_option = 0;
 
 // Morse timings variables
 float wpm_factor = 1200.0 / wpm;  // WPM to milliseconds for a dot
@@ -284,6 +301,90 @@ void writeDataToFile() {
   }
 }
 
+void saveTestResult(int level, String newResult) {
+    // Initialize SD card
+    if (!SD.begin()) {
+        Serial.println("SD Card initialization failed!");
+        return;
+    }
+
+    // Read the current content of the file
+    File logFile = SD.open(testsFilePath, FILE_READ);
+    if (!logFile) {
+        Serial.println("File does not exist, creating a new one.");
+    }
+    
+    String fileContent = "";
+    String updatedContent = "";
+    String levelPrefix = "Level" + String(level) + ":";
+    bool levelFound = false;
+
+    while (logFile.available()) {
+        String line = logFile.readStringUntil('\n');
+        fileContent += line + "\n";  // Read the entire file content
+        
+        if (line.startsWith(levelPrefix)) {
+            levelFound = true;
+            // Append the new result to the corresponding level
+            if (!line.endsWith(":")) {  // If there are already results
+                line += "," + newResult;
+            } else {  // If no results exist for this level yet
+                line += newResult;
+            }
+        }
+        updatedContent += line + "\n";  // Add updated or unchanged line
+    }
+    logFile.close();
+
+    // If the level was not found, add a new entry for it
+    if (!levelFound) {
+        updatedContent += levelPrefix + newResult + "\n";
+    }
+
+    // Write the updated content back to the file
+    logFile = SD.open(testsFilePath, FILE_WRITE);
+    if (!logFile) {
+        Serial.println("Failed to open file for writing!");
+        return;
+    }
+    logFile.print(updatedContent);
+    logFile.close();
+
+    Serial.println("Test result logged successfully!");
+}
+
+// Function to read results for a specific level
+String readTestResultsForLevel(int level) {
+    // Initialize SD card
+    if (!SD.begin()) {
+        Serial.println("SD Card initialization failed!");
+        return "";
+    }
+
+    // Open the file for reading
+    File logFile = SD.open(testsFilePath, FILE_READ);
+    if (!logFile) {
+        Serial.println("File not found!");
+        return "";
+    }
+
+    String levelPrefix = "Level" + String(level) + ":";
+    String levelResults = "";
+
+    // Search for the level in the file
+    while (logFile.available()) {
+        String line = logFile.readStringUntil('\n');
+        if (line.startsWith(levelPrefix)) {
+            levelResults = line.substring(levelPrefix.length());  // Extract the results
+            break;
+        }
+    }
+
+    logFile.close();
+    return levelResults;
+}
+
+
 // Draw a bordered rectangle for GUI elements
 void draw_bordered_rect(int x, int y, int width, int height, uint16_t color, uint16_t bg_color, bool filled=true) {
   if(filled)
@@ -398,6 +499,20 @@ void play_level_test_morse_codes() {
   }
 }
 
+void play_morse_code_string(String free_string) {
+  for (int i = 0; i < free_string.length(); i++) {
+    if(free_string[i]==' ')
+    {
+      delay(inter_word_pause);
+    }
+    else
+    {
+      play_morse_code(free_string[i]);
+      delay(inter_character_pause);  // Inter-character pause      
+    }
+  }
+}
+
 // Check if the user's input is correct
 void check_input() {
   String correct_answer = "";
@@ -460,7 +575,8 @@ void check_level_test_input() {
   }
   draw_multiline_text(test_chars_fix, 33,59, GREEN,1, M5Cardputer.Display.width()-25, 25);
   draw_multiline_text(wrong_chars, 33,50, RED,1, M5Cardputer.Display.width()-25, 25);
-  
+
+  saveTestResult(level,String(test_score));
   delay(1000);
   user_level_test_input="";
   after_level_test_options();
@@ -477,7 +593,7 @@ void after_round_options(){
   printscores();
   
   M5Cardputer.Display.fillRect(5, M5Cardputer.Display.height()-20, M5Cardputer.Display.width()-5, 20, WHITE);
-  draw_centered_text("Next Round : Enter  |    Menu : Esc", 120, TFT_BLACK,1);
+  draw_centered_text("Menu : Esc | Review : R | Next : Enter", 120, TFT_BLACK,1);
   after_round_opts = true;
   menu_open = false; 
   waiting_for_input = false;
@@ -570,63 +686,220 @@ char get_random_char() {
   return current_pool[index];
 }
 
+
 // Display the main menu
 void show_menu() {
   M5Cardputer.Display.clear();
+  settings_selected_option=0;
+  testzone_selected_option=0;
+  study_selected_option=0;
   draw_bordered_rect(5, 5, M5Cardputer.Display.width()-5, M5Cardputer.Display.height()-5, TFT_WHITE, BLACK);
-  String menu_val="";
   int color = TFT_GREEN;
   for (int i = 0; i < menu_items_count; i++) {
     if (i == selected_option) {
       color = TFT_GREEN; // Highlight selected option
     } else {
       color = TFT_WHITE;
-    }
+    }    
     
-    switch (i) {
-    case 0:  
-      break;
-    case 1:  
-      break;
-    case 2:  
-      break;
-    case 3:  
-      menu_val=":"+String(level);
-      break;
-    case 4: 
-      menu_val=":"+String(wpm);
-      break;
-    case 5:  
-      menu_val=":"+String(spk_volume);
-      break;
+    draw_centered_text(menu_items[i],20 + (i * 20), color,2);
   }
-    draw_left_text(menu_items[i]+menu_val,10 + (i * 20), color,2);
-    menu_val="";
+
+  M5Cardputer.Display.fillRect(5, M5Cardputer.Display.height()-20, M5Cardputer.Display.width()-5, 20, WHITE);
+  draw_centered_text("Level:"+String(level)+"  WPM:"+String(wpm)+"  Vol:"+String(spk_volume)+"  Tone:"+String(morsetone), 120, TFT_BLACK,1);
+}
+
+// Display the study menu
+void show_study_menu() {
+  //M5Cardputer.Display.clear();
+  draw_bordered_rect(40, 40, M5Cardputer.Display.width()-80, M5Cardputer.Display.height()-80, TFT_DARKGREY, TFT_DARKGREY);
+  int color = GREEN;
+  for (int i = 0; i < study_menu_items_count; i++) {
+    if (i == study_selected_option) {
+      color = GREEN; // Highlight selected option
+    } else {
+      color = WHITE;
+    }
+        
+    draw_centered_text(study_menu_items[i],50 + (i * 20), color,2);
   }
 }
+
+// Display the study menu
+void show_testzone_menu() {
+  //M5Cardputer.Display.clear();
+  draw_bordered_rect(20, 40, M5Cardputer.Display.width()-40, M5Cardputer.Display.height()-80, TFT_DARKGREY, TFT_DARKGREY);
+  int color = GREEN;
+  for (int i = 0; i < testzone_menu_items_count; i++) {
+    if (i == testzone_selected_option) {
+      color = GREEN; // Highlight selected option
+    } else {
+      color = WHITE;
+    }
+        
+    draw_centered_text(testzone_menu_items[i],50 + (i * 20), color,2);
+  }
+}
+
+// Display the study menu
+void show_settings_menu() {
+  //M5Cardputer.Display.clear();
+  String settings_menu_val="";
+  draw_bordered_rect(40, 20, M5Cardputer.Display.width()-80, M5Cardputer.Display.height()-50, TFT_DARKGREY, TFT_DARKGREY);
+  int color = GREEN;
+  for (int i = 0; i < settings_menu_items_count; i++) {
+    if (i == settings_selected_option) {
+      color = GREEN; // Highlight selected option
+    } else {
+      color = WHITE;
+    }
+
+   switch (i) {
+    case 0:  
+      settings_menu_val=":"+String(level);
+      break;
+    case 1: 
+      settings_menu_val=":"+String(wpm);
+      break;
+    case 2:  
+      settings_menu_val=":"+String(spk_volume);
+      break;
+    case 3:  
+      settings_menu_val=":"+String(morsetone);
+      break;
+  }
+
+    draw_centered_text(settings_menu_items[i]+settings_menu_val,25 + (i * 20), color,2);
+    settings_menu_val="";
+  }
+}
+
 
 // Handle user input for WPM and Level in the menu
 void handle_menu_selection() {
   switch (selected_option) {
-    case 0:  // Start Game
-      new_level_test();
+    case 0:  // test menu
+      testzone_menu_open = true; 
+      menu_open = false; 
+      show_testzone_menu();
       break;
-    case 1:  // Start Game
+    case 1:  // play Game
       new_round();
       break;
-    case 2:  // Set Level
-      study_level();
+    case 2:  // Study menu
+      //study_level();
+      study_menu_open = true; 
+      menu_open = false; 
+      show_study_menu();
       break;
     case 3:  // Set Level
+      settings_menu_open = true; 
+      menu_open = false; 
+      show_settings_menu();
+      break;    
+  }
+}
+
+void handle_study_menu_selection() {
+  switch (study_selected_option) {
+    case 0:  // study level
+      study_level();
+      break;
+    case 1:  // free study
+      free_study();
+      break;    
+  }
+}
+
+void handle_testzone_menu_selection() {
+  switch (testzone_selected_option) {
+    case 0:  // test level
+      new_level_test();
+      break;
+    case 1:  // show level results
+      show_level_results();
+      break;    
+  }
+}
+
+void handle_settings_menu_selection() {
+  switch (settings_selected_option) {
+    case 0:  // level
       set_level();
       break;
-    case 4:  // Set WPM
+    case 1:  // wpm
       set_wpm();
-      break;
-    case 5:  // Set Volume
+      break; 
+    case 2:  // vol
       set_volume();
       break;
+     case 3:  // tone
+      set_tone();
+      break;    
   }
+}
+
+
+
+void free_study(){
+  String free_input = "";
+  M5Cardputer.Display.clear();
+  
+  draw_centered_text("Type characters:", 20, TFT_WHITE,2);
+  draw_bordered_rect(25,42, M5Cardputer.Display.width()-48, 58, TFT_WHITE, BLACK);
+        
+  M5Cardputer.Display.fillRect(5, M5Cardputer.Display.height()-20, M5Cardputer.Display.width()-5, 20, WHITE);
+  draw_centered_text("Menu : Esc    |    Play : Enter", 120, TFT_BLACK,1);
+  
+  while (true) {
+    M5Cardputer.update();
+    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+
+        for (auto key : status.word) {
+          if ((isalnum(key) or key=='.' or key=='/' or key=='?' or key==',' or key=='=' or key==' ') && free_input.length() <149) {
+            free_input += key;
+            free_input.toUpperCase();
+          }
+        }
+        // Handle delete key (backspace)
+        if (status.del && free_input.length() > 0) {
+          free_input.remove(free_input.length() - 1);
+        }
+
+        // Handle Enter key 
+        if (status.enter && free_input.length() > 0) {
+          play_morse_code_string(free_input);
+        }
+
+        // Handle Esc key 
+        if (M5Cardputer.Keyboard.isKeyPressed('`')) {
+          free_input="";
+          break;
+        }
+  
+        // Update the display with the user's input
+        //draw_bordered_rect(0, 70, M5Cardputer.Display.width(), M5Cardputer.Display.height(), BLACK, BLACK);
+        //draw_left_text(free_input, 73, TFT_WHITE,2);
+        
+        
+        // Update the display with the user's current input
+        draw_bordered_rect(25,42, M5Cardputer.Display.width()-48, 58, TFT_WHITE, BLACK);
+        if(free_input.length() == 149){
+          draw_multiline_text(free_input, 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25);
+        }
+        else{
+          draw_multiline_text(free_input+"_", 33,50, TFT_WHITE,1, M5Cardputer.Display.width()-25);
+        }
+      }
+    }
+  }
+
+  menu_open = true;  // Return to menu
+  show_menu();
 }
 
 //Shows info and plays example for the currently selected level
@@ -635,7 +908,7 @@ void study_level(){
   draw_centered_text("Current Level:"+String(level), 10, TFT_WHITE,2);
 
   M5Cardputer.Display.fillRect(5, M5Cardputer.Display.height()-20, M5Cardputer.Display.width()-5, 20, WHITE);
-  draw_centered_text("Play : Enter  |    Menu : Esc", 120, TFT_BLACK,1);
+  draw_centered_text("Menu : Esc   |   Play : Enter", 120, TFT_BLACK,1);
   
   if(level==1)
   {
@@ -706,6 +979,37 @@ void study_level(){
    show_menu();
 }
 
+void show_level_results(){
+  M5Cardputer.Display.clear();
+  
+  draw_centered_text("Level "+String(level)+" results:", 20, TFT_WHITE,2);
+
+  String rslts = readTestResultsForLevel(level);
+  draw_multiline_text(rslts, 20,60, TFT_WHITE,1, M5Cardputer.Display.width()-25);
+          
+  M5Cardputer.Display.fillRect(5, M5Cardputer.Display.height()-20, M5Cardputer.Display.width()-5, 20, WHITE);
+  draw_centered_text("Menu : Esc", 120, TFT_BLACK,1);
+  
+  while (true) {
+    M5Cardputer.update();
+    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+        
+        // Handle Esc key 
+        if (M5Cardputer.Keyboard.isKeyPressed('`')) {         
+          break;
+        } 
+      }
+    }
+  }
+
+  menu_open = true;  // Return to menu
+  show_menu();
+}
+
 // Menu for adjusting WPM
 void set_wpm() {
   String wpm_input = "";
@@ -759,6 +1063,62 @@ void set_wpm() {
   // Confirmation message
   draw_bordered_rect(5, 5, M5Cardputer.Display.width()-5, M5Cardputer.Display.height()-5, GREEN, BLACK);
   draw_centered_text("WPM Set to: " + String(wpm), 50, TFT_WHITE,2);
+  writeDataToFile();   
+  delay(1000);
+  menu_open = true;  // Return to menu after setting WPM
+  show_menu();
+}
+
+// Menu for adjusting WPM
+void set_tone() {
+  String tone_input = "";
+  M5Cardputer.Display.clear();
+  draw_centered_text("Enter Tone", 30, TFT_WHITE,2);
+  draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 50, 50, 22, TFT_WHITE, BLACK);
+  while (true) {
+    M5Cardputer.update();
+    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+      unsigned long currentMillis = millis();
+      if (currentMillis - lastKeyPressMillis >= debounceDelay) {
+        lastKeyPressMillis = currentMillis;
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+
+        // Handle number input
+        for (auto key : status.word) {
+          if (isdigit(key) && tone_input.length() < 6) {
+            tone_input += key;
+            draw_centered_text("Invalid Tone", 70, BLACK,2);
+          }
+        }
+
+        // Handle delete key (backspace)
+        if (status.del && tone_input.length() > 0) {
+          tone_input.remove(tone_input.length() - 1);
+          draw_centered_text("Invalid Tone", 70, BLACK,2);
+        }
+
+        // Handle Enter key (finalize WPM input)
+        if (status.enter && tone_input.length() > 0) {
+          morsetone = tone_input.toInt();
+          if (morsetone <= 0) { // Validate WPM
+            M5Cardputer.Display.setTextColor(TFT_RED);
+            draw_centered_text("Invalid Tone!", 70, TFT_RED,2);
+           
+            continue;
+          }
+          break;  // Exit the loop when a valid WPM is entered
+        }
+
+        // Update the display with the user's input
+        draw_bordered_rect((M5Cardputer.Display.width()/2)-25, 50, 50, 22, TFT_WHITE, BLACK);
+        draw_centered_text(tone_input, 53, TFT_WHITE,2);
+      }
+    }
+  }
+
+  // Confirmation message
+  draw_bordered_rect(5, 5, M5Cardputer.Display.width()-5, M5Cardputer.Display.height()-5, GREEN, BLACK);
+  draw_centered_text("Tone set to: " + String(morsetone), 50, TFT_WHITE,2);
   writeDataToFile();   
   delay(1000);
   menu_open = true;  // Return to menu after setting WPM
@@ -934,6 +1294,9 @@ void loop() {
             after_round_opts = false;
             show_menu();
           }
+          else if(M5Cardputer.Keyboard.isKeyPressed('r')){
+            play_five_morse_codes();
+          }
       }
       else if(after_test_opts){ 
         if (M5Cardputer.Keyboard.isKeyPressed('`')){
@@ -952,6 +1315,57 @@ void loop() {
         } else if (status.enter) {
           menu_open = false;
           handle_menu_selection();  // Execute the selected menu option
+        }
+      } 
+      else if (study_menu_open) {
+        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+          study_selected_option = (study_selected_option + 1) % study_menu_items_count;  // Navigate down
+          show_study_menu();
+        } else if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+          study_selected_option = (study_selected_option - 1 + study_menu_items_count) % study_menu_items_count;  // Navigate up
+          show_study_menu();
+        } else if (status.enter) {
+          study_menu_open = false;
+          handle_study_menu_selection();  // Execute the selected study menu option
+        }
+        else if (M5Cardputer.Keyboard.isKeyPressed('`')) {
+          study_menu_open = false;
+          menu_open = true; 
+          show_menu();
+        }
+      } 
+      else if (settings_menu_open) {
+        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+          settings_selected_option = (settings_selected_option + 1) % settings_menu_items_count;  // Navigate down
+          show_settings_menu();
+        } else if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+          settings_selected_option = (settings_selected_option - 1 + settings_menu_items_count) % settings_menu_items_count;  // Navigate up
+          show_settings_menu();
+        } else if (status.enter) {
+          settings_menu_open = false;
+          handle_settings_menu_selection();  // Execute the selected study menu option
+        }
+        else if (M5Cardputer.Keyboard.isKeyPressed('`')) {
+          settings_menu_open = false;
+          menu_open = true; 
+          show_menu();
+        }
+      } 
+      else if (testzone_menu_open) {
+        if (M5Cardputer.Keyboard.isKeyPressed('.')) {
+          testzone_selected_option = (testzone_selected_option + 1) % testzone_menu_items_count;  // Navigate down
+          show_testzone_menu();
+        } else if (M5Cardputer.Keyboard.isKeyPressed(';')) {
+          testzone_selected_option = (testzone_selected_option - 1 + testzone_menu_items_count) % testzone_menu_items_count;  // Navigate up
+          show_testzone_menu();
+        } else if (status.enter) {
+          testzone_menu_open = false;
+          handle_testzone_menu_selection();  // Execute the selected study menu option
+        }
+        else if (M5Cardputer.Keyboard.isKeyPressed('`')) {
+          testzone_menu_open = false;
+          menu_open = true; 
+          show_menu();
         }
       } 
       else if (waiting_for_input) {  
