@@ -1,4 +1,4 @@
-  #include "M5Cardputer.h"
+#include "M5Cardputer.h"
 #include <map>
 #include <vector>
 #include <SD.h>
@@ -1252,7 +1252,8 @@ void set_volume() {
 
 // Main setup
 void setup() {
-  M5Cardputer.begin();
+  auto cfg = M5.config();
+  M5Cardputer.begin(cfg, true); // true = enable keyboard
 
   if (!SD.begin()) {
     Serial.println("SD card initialization failed!");
